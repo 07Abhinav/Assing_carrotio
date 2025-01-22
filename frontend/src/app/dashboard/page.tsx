@@ -25,7 +25,7 @@ export default function Dashboard() {
 
   const handlelogout = async () => {
     try {
-      const response = await fetch('https://assingment-carrotio.onrender.com/api/logout', {
+      const response = await fetch('https://assing-carrotio.onrender.com/api/logout', {
         method: 'GET',
         credentials: 'include',
       });
@@ -50,7 +50,7 @@ export default function Dashboard() {
           ...(endDateFormatted && { endDate: endDateFormatted }),   // Adjusted query parameter for Google Calendar API
         }).toString();
 
-      const response = await fetch(`https://assingment-carrotio.onrender.com/api/calendar/events?${query}`, {
+      const response = await fetch(`https://assing-carrotio.onrender.com/api/calendar/events?${query}`, {
         credentials: 'include',
       });
 
