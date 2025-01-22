@@ -18,7 +18,7 @@ const users = new Map();
 app.use(express.json());
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/',
     credentials: true,
   })
 );
@@ -141,8 +141,8 @@ app.get(
 app.get(
   '/auth/google/callback',
   passport.authenticate('google', {
-    successRedirect: process.env.CLIENT_URL || 'http://localhost:3000/dashboard',
-    failureRedirect: process.env.CLIENT_URL || 'http://localhost:3000/login',
+    successRedirect: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app//dashboard',
+    failureRedirect: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app//login',
   })
 );
 
