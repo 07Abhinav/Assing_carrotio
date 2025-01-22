@@ -34,16 +34,18 @@ app.use(
 
 // Session configuration
 app.use(
-  session({
-    secret: process.env.SESSION_SECRET || 'default_secret',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    },
-  })
-);
+    session({
+      secret: process.env.SESSION_SECRET || 'default_secret',
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        secure: process.env.NODE_ENV === 'production', // Secure cookies in production
+        httpOnly: true,  // Ensures cookies can't be accessed by JavaScript
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      },
+    })
+  );
+  
 
 // Passport configuration
 app.use(passport.initialize());
