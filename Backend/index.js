@@ -16,12 +16,21 @@ const users = new Map();
 
 // Middleware
 app.use(express.json());
+const allowedOrigins = ['https://assing-carrotio.vercel.app']; // Add your client URL here
+
 app.use(
   cors({
-    origin: "*",
-    // credentials: true,
+    origin: (origin, callback) => {
+      if (allowedOrigins.includes(origin) || !origin) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true, // Allow credentials (cookies, Authorization headers, etc.)
   })
 );
+
 
 // Session configuration
 app.use(
