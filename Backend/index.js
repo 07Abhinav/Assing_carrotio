@@ -18,7 +18,7 @@ const users = new Map();
 app.use(express.json());
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/',
+    origin: "*",
     credentials: true,
   })
 );
