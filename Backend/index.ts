@@ -102,7 +102,11 @@ passport.deserializeUser((id: string, done) => {
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID!,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+<<<<<<< HEAD
     callbackURL: process.env.GOOGLE_CALLBACK_URL || 'https://assing-carrotio.onrender.com/auth/google/callback',
+=======
+    callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:4000/auth/google/callback',
+>>>>>>> 53e98b3ffbe1f4feea4dc9dd0a1261b0a406ecce
     scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly']
   },
   async (accessToken: string, refreshToken: string, profile: Profile, done: (error: any, user?: any) => void) => {
