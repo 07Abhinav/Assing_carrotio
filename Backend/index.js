@@ -33,18 +33,26 @@ app.use(
 
 
 // Session configuration
+const MongoStore = require('connect-mongo');
+
 app.use(
-    session({
-      secret: process.env.SESSION_SECRET || 'default_secret',
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        secure: process.env.NODE_ENV === 'production', // Secure cookies in production
-        httpOnly: true,  // Ensures cookies can't be accessed by JavaScript
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      },
-    })
-  );
+  session({
+    secret: process.env.SESSION_SECRET || 'default_secret',
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl: "mongodb+srv://abhinav29072003:Legend100@cluster0.t0jdg.mongodb.net/carotio", // Replace with your MongoDB URI
+      collectionName: 'user',
+    }),
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000,
+    },
+  })
+);
+
   
 
 // Passport configuration
@@ -103,11 +111,14 @@ passport.use(
 
 // Authentication middleware
 const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ error: 'Unauthorized' });
-};
+    console.log('Is authenticated:', req.isAuthenticated());
+    console.log('User:', req.user);
+    if (req.isAuthenticated()) {
+      return next();
+    }
+    res.status(401).json({ error: 'Unauthorized' });
+  };
+  
 
 // Calendar service
 const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) => {
