@@ -41,7 +41,8 @@ app.use(
     resave: false,
     saveUninitialized: false,
     store: MongoStore.create({
-      mongoUrl: "mongodb+srv://abhinav29072003:Legend100@cluster0.t0jdg.mongodb.net/carotio", // Replace with your MongoDB URI
+      mongoUrl: "mongodb+srv://abhinav29072003:Legend100@cluster0.t0jdg.mongodb.net/carotio?retryWrites=true&w=majority&tlsAllowInvalidCertificates=true", // Replace with your MongoDB URI
+      
       collectionName: 'user',
     }),
     cookie: {
