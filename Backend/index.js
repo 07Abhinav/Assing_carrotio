@@ -6,8 +6,8 @@ const { google } = require('googleapis');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
-const crypto = require('crypto');
 
+// Initialize
 dotenv.config();
 const app = express();
 
@@ -20,9 +20,9 @@ const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
 db.once('open', () => {
   console.log('Connected to MongoDB');
-});
+}); 
 
-// User Schema
+// Define User Schema
 const userSchema = new mongoose.Schema({
   googleId: { type: String, unique: true },
   name: String,
@@ -34,16 +34,6 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
-
-// Session Schema
-const sessionSchema = new mongoose.Schema({
-  sessionId: { type: String, unique: true },
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  createdAt: { type: Date, default: Date.now },
-  expiresAt: { type: Date },
-});
-
-const Session = mongoose.model('Session', sessionSchema);
 
 // Middleware
 app.use(express.json());
@@ -62,8 +52,23 @@ app.use(
   })
 );
 
-// Passport Setup
+// Session configuration
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || 'default_secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000,
+    },
+  })
+);
+
+// Passport configuration
 app.use(passport.initialize());
+app.use(passport.session());
 
 passport.serializeUser((user, done) => {
   done(null, user.id);
@@ -72,7 +77,11 @@ passport.serializeUser((user, done) => {
 passport.deserializeUser(async (id, done) => {
   try {
     const user = await User.findById(id);
-    done(null, user || null);
+    if (user) {
+      done(null, user);
+    } else {
+      done(new Error('User not found'), null);
+    }
   } catch (error) {
     done(error, null);
   }
@@ -84,7 +93,9 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL,
+      callbackURL:
+        process.env.GOOGLE_CALLBACK_URL ||
+        'https://assing-carrotio.onrender.com/auth/google/callback',
       scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly'],
     },
     async (accessToken, refreshToken, profile, done) => {
@@ -95,48 +106,36 @@ passport.use(
           user = new User({
             googleId: profile.id,
             name: profile.displayName,
-            email: profile.emails[0]?.value,
+            email: profile.emails?.[0].value || '',
             accessToken,
             refreshToken,
           });
         } else {
+          // Update tokens if user already exists
           user.accessToken = accessToken;
           user.refreshToken = refreshToken;
           user.updatedAt = new Date();
         }
 
         await user.save();
-        done(null, user);
+        return done(null, user);
       } catch (error) {
-        done(error, null);
+        console.error('Error during user creation:', error);
+        return done(error, null);
       }
     }
   )
 );
 
-// Custom Session Middleware
-app.use(async (req, res, next) => {
-  const sessionId = req.headers['x-session-id'];
-  if (!sessionId) {
-    req.user = null;
+// Authentication middleware
+const ensureAuthenticated = (req, res, next) => {
+  if (req.isAuthenticated()) {
     return next();
   }
+  res.status(401).json({ error: 'Unauthorized' });
+};
 
-  try {
-    const session = await Session.findOne({ sessionId }).populate('userId');
-    if (session && session.expiresAt > new Date()) {
-      req.user = session.userId; // Attach the user object to the request
-    } else {
-      req.user = null;
-    }
-  } catch (error) {
-    console.error('Session retrieval error:', error);
-    req.user = null;
-  }
-  next();
-});
-
-// Calendar Service
+// Calendar service
 const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) => {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -151,6 +150,7 @@ const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) 
     });
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
     const response = await calendar.events.list({
       calendarId: 'primary',
       timeMin: startDate || new Date().toISOString(),
@@ -168,53 +168,58 @@ const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) 
 };
 
 // Routes
-app.get('/auth/google', passport.authenticate('google'));
+app.get(
+  '/auth/google',
+  passport.authenticate('google', {
+    scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly'],
+  })
+);
 
 app.get(
   '/auth/google/callback',
-  passport.authenticate('google', { session: false }),
-  async (req, res) => {
-    const sessionId = crypto.randomBytes(16).toString('hex');
-    const session = new Session({
-      sessionId,
-      userId: req.user._id,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-    });
-    await session.save();
-
-    res.json({ sessionId, message: 'Login successful' });
-  }
+  passport.authenticate('google', {
+    successRedirect: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/dashboard',
+    failureRedirect: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/login',
+  })
 );
 
-app.get('/api/calendar/events', async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
+app.get('/api/calendar/events', ensureAuthenticated, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
+    const user = req.user;
+
     const events = await getCalendarEvents(
-      req.user.accessToken,
-      req.user.refreshToken,
+      user.accessToken,
+      user.refreshToken,
       startDate,
       endDate
     );
     res.json(events);
   } catch (error) {
+    console.error('Error fetching events:', error);
     res.status(500).json({ error: 'Failed to fetch calendar events' });
   }
 });
 
-app.post('/api/logout', async (req, res) => {
-  const sessionId = req.headers['x-session-id'];
-  if (sessionId) {
-    await Session.deleteOne({ sessionId });
-  }
-  res.json({ message: 'Logged out' });
+app.get('/api/logout', (req, res) => {
+  req.logout(() => {
+    res.json({ message: 'Logged out' });
+  });
 });
 
-// Start Server
+// Error handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal Server Error', message: err.message });
+});
+
+// Start server
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+module.exports = app;
+
+
+implement in this
