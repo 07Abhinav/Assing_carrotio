@@ -12,7 +12,7 @@ dotenv.config();
 const app = express();
 
 // Connect to MongoDB
-mongoose.connect("mongodb+srv://abhinav29072003:Legend100@cluster0.t0jdg.mongodb.net/carotio?retryWrites=true&w=majority", {
+mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
@@ -37,20 +37,15 @@ const User = mongoose.model('User', userSchema);
 
 // Middleware
 app.use(express.json());
-const allowedOrigins = ['https://assing-carrotio.vercel.app'];
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (allowedOrigins.includes(origin) || !origin) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-  })
-);
+// More flexible CORS configuration
+const CLIENT_URL = process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app';
+app.use(cors({
+  origin: CLIENT_URL,
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // Session configuration
 app.use(
@@ -61,6 +56,7 @@ app.use(
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000,
     },
   })
@@ -93,9 +89,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL:
-        process.env.GOOGLE_CALLBACK_URL ||
-        'https://assing-carrotio.onrender.com/auth/google/callback',
+      callbackURL: process.env.GOOGLE_CALLBACK_URL || `${process.env.SERVER_URL}/auth/google/callback`,
       scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly'],
     },
     async (accessToken, refreshToken, profile, done) => {
@@ -162,7 +156,7 @@ const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) 
 
     return response.data.items;
   } catch (error) {
-    console.error('Error fetching calendar events:', error);
+    console.error('Detailed calendar events error:', error);
     throw error;
   }
 };
@@ -178,8 +172,8 @@ app.get(
 app.get(
   '/auth/google/callback',
   passport.authenticate('google', {
-    successRedirect: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/dashboard',
-    failureRedirect: process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/login',
+    successRedirect: CLIENT_URL + '/dashboard',
+    failureRedirect: CLIENT_URL + '/login',
   })
 );
 
@@ -188,35 +182,48 @@ app.get('/api/calendar/events', ensureAuthenticated, async (req, res) => {
     const { startDate, endDate } = req.query;
     const user = req.user;
 
+    console.log('Fetching events - User ID:', user.id);
+    console.log('Start Date:', startDate);
+    console.log('End Date:', endDate);
+
     const events = await getCalendarEvents(
       user.accessToken,
       user.refreshToken,
       startDate,
       endDate
     );
+    
     res.json(events);
   } catch (error) {
-    console.error('Error fetching events:', error);
-    res.status(500).json({ error: 'Failed to fetch calendar events' });
+    console.error('Comprehensive events fetch error:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch calendar events', 
+      details: error.message,
+      stack: error.stack 
+    });
   }
 });
 
 app.get('/api/logout', (req, res) => {
   req.logout(() => {
-    res.json({ message: 'Logged out' });
+    res.json({ message: 'Logged out successfully' });
   });
 });
 
-// Error handler
+// Catch-all error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  console.error('Unhandled error:', err);
+  res.status(500).json({ 
+    error: 'Internal Server Error', 
+    message: err.message,
+    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack 
+  });
 });
 
 // Start server
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
 module.exports = app;
