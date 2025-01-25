@@ -1,118 +1,131 @@
 const express = require('express');
-const passport = require('passport');
-const session = require('express-session');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { google } = require('googleapis');
+const mongoose = require('mongoose');
 const cors = require('cors');
-require('dotenv').config();
+const dotenv = require('dotenv');
 
-// Type definitions (as comments for JS)
-// Equivalent interfaces from TypeScript are represented as comments
-
+dotenv.config();
 const app = express();
 
-// In-memory user store
-const users = new Map();
+// Connect to MongoDB
+mongoose.connect("mongodb+srv://abhinav29072003:Legend100@cluster0.t0jdg.mongodb.net/carotio?retryWrites=true&w=majority", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'MongoDB connection error:'));
+db.once('open', () => {
+  console.log('Connected to MongoDB');
+});
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  googleId: { type: String, unique: true },
+  name: String,
+  email: String,
+  accessToken: String,
+  refreshToken: String,
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+const User = mongoose.model('User', userSchema);
 
 // Middleware
 app.use(express.json());
-const CLIENT_URL = 'https://assing-carrotio.vercel.app';
-app.use(cors({
-  origin: CLIENT_URL,
-  credentials: true
-}));
+const allowedOrigins = ['https://assing-carrotio.vercel.app', 'http://localhost:3000'];
 
-// Session configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'default_secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (allowedOrigins.includes(origin) || !origin) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  })
+);
+
+// Google OAuth2 Configuration
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_CALLBACK_URL
+);
+
+// Verify Access Token
+const verifyAccessToken = async (accessToken) => {
+  try {
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+    return data; // Contains user info (id, email, name, etc.)
+  } catch (error) {
+    console.error('Error verifying access token:', error);
+    return null;
   }
-}));
-
-// Passport configuration
-app.use(passport.initialize());
-app.use(passport.session());
-
-// Passport serialization
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser((id, done) => {
-  const user = users.get(id);
-  if (user) {
-    done(null, user);
-  } else {
-    done(new Error('User not found'), null);
-  }
-});
-
-// Google OAuth Strategy
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL || '${process.env.SERVER_URL}/auth/google/callback',
-    scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly']
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      // Create or update user object
-      const user = {
-        id: profile.id,
-        googleId: profile.id,
-        name: profile.displayName,
-        email: profile.emails?.[0]?.value ?? '',
-        accessToken,
-        refreshToken,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-
-      // Store in memory
-      users.set(profile.id, user);
-      return done(null, user);
-    } catch (error) {
-      console.error('Error during user creation:', error);
-      return done(error, null);
-    }
-  }
-));
-
-// Authentication middleware
-const ensureAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ error: 'Unauthorized' });
 };
 
-// Calendar service
-const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) => {
-  try {
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_CALLBACK_URL
-    );
+// Generate OAuth2 URL
+app.get('/auth/google', (req, res) => {
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly'],
+  });
+  res.redirect(url);
+});
 
-    oauth2Client.setCredentials({
-      access_token: accessToken,
-      refresh_token: refreshToken
-    });
+// Handle Google OAuth2 Callback
+app.get('/auth/google/callback', async (req, res) => {
+  const { code } = req.query;
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+
+    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+    const { data } = await oauth2.userinfo.get();
+
+    let user = await User.findOne({ googleId: data.id });
+    if (!user) {
+      user = new User({
+        googleId: data.id,
+        name: data.name,
+        email: data.email,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+      });
+    } else {
+      user.accessToken = tokens.access_token;
+      user.refreshToken = tokens.refresh_token;
+      user.updatedAt = new Date();
+    }
+    await user.save();
+    const successRedirect = `${process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/'}?accessToken=${tokens.access_token}`;
+    res.redirect(successRedirect);
+
+  } catch (error) {
+    console.error('Error during authentication:', error);
+    res.status(500).json({ error: 'Authentication failed' });
+  }
+});
+
+// Calendar Service
+const getCalendarEvents = async (accessToken, startDate, endDate) => {
+  try {
+    oauth2Client.setCredentials({ access_token: accessToken });
 
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-    
     const response = await calendar.events.list({
       calendarId: 'primary',
       timeMin: startDate || new Date().toISOString(),
       timeMax: endDate,
       maxResults: 50,
       singleEvents: true,
-      orderBy: 'startTime'
+      orderBy: 'startTime',
     });
 
     return response.data.items;
@@ -122,62 +135,35 @@ const getCalendarEvents = async (accessToken, refreshToken, startDate, endDate) 
   }
 };
 
-// Routes
-app.get('/auth/google',
-  passport.authenticate('google', { 
-    scope: ['profile', 'email', 'https://www.googleapis.com/auth/calendar.readonly']
-  })
-);
-
-app.get(
-  '/auth/google/callback',
-  passport.authenticate('google', {
-    successRedirect: CLIENT_URL + '/dashboard',
-    failureRedirect: CLIENT_URL + '/login',
-  })
-);
-
-app.get('/api/calendar/events', 
-  ensureAuthenticated,
-  async (req, res) => {
-    try {
-      const { startDate, endDate } = req.query;
-      const user = req.user;
-
-      console.log('Fetching events for user:', startDate, endDate, user);
-
-      const events = await getCalendarEvents(
-        user.accessToken,
-        user.refreshToken,
-        startDate,
-        endDate
-      );
-      res.json(events);
-    } catch (error) {
-      console.error('Error fetching events:', error);
-      res.status(500).json({ error: 'Failed to fetch calendar events' });
-    }
+// Protected Endpoint to Fetch Calendar Events
+app.get('/api/calendar/events', async (req, res) => {
+  const accessToken = req.headers['authorization']?.split(' ')[1];
+  if (!accessToken) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-);
 
-app.get('/api/logout', (req, res) => {
-  req.logout(() => {
-    res.json({ message: 'Logged out' });
-  });
+  try {
+    const userInfo = await verifyAccessToken(accessToken);
+    if (!userInfo) {
+      return res.status(401).json({ error: 'Invalid access token' });
+    }
+
+    const { startDate, endDate } = req.query;
+    const events = await getCalendarEvents(accessToken, startDate, endDate);
+    res.json(events);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch calendar events' });
+  }
 });
 
-// Error handler
-const errorHandler = (err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: 'Internal Server Error', message: err.message });
-};
+// Logout Route (Optional)
+app.post('/api/logout', (req, res) => {
+  // Since the app is stateless, we simply inform the client to discard the token
+  res.json({ message: 'Logged out' });
+});
 
-app.use(errorHandler);
-
-// Start server
+// Start Server
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
-
-module.exports = app;
