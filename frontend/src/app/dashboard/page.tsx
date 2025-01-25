@@ -58,7 +58,7 @@ export default function Dashboard() {
       const response = await fetch(`https://assing-carrotio.onrender.com/api/calendar/events?${query}`, {
         method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': '<applicati></applicati>on/json',
           Authorization: `Bearer ${accessToken}`, // Adding the Bearer token
         },
       });
@@ -72,9 +72,15 @@ export default function Dashboard() {
   
       const data = await response.json();
       setEvents(data);
-    } catch (error:any) {
-      console.error('Error:', error.message || error);
-      alert(error.message || 'An error occurred while fetching events');
+    }
+    catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error('Error:', error.message);
+        alert(error.message);
+      } else {
+        console.error('An unexpected error occurred:', error);
+        alert('An unexpected error occurred while fetching events');
+      }
     } finally {
       setLoading(false);
     }
