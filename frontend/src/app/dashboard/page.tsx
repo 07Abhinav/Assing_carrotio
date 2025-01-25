@@ -42,25 +42,39 @@ export default function Dashboard() {
 
   const fetchEvents = async () => {
     try {
-        const startDateFormatted = startDate ? new Date(startDate).toISOString() : '';
-        const endDateFormatted = endDate ? new Date(endDate).toISOString() : '';
-    
-        const query = new URLSearchParams({
-          ...(startDateFormatted && { startDate: startDateFormatted }), // Adjusted query parameter for Google Calendar API
-          ...(endDateFormatted && { endDate: endDateFormatted }),   // Adjusted query parameter for Google Calendar API
-        }).toString();
-
+      setLoading(true);
+  
+      const startDateFormatted = startDate ? new Date(startDate).toISOString() : '';
+      const endDateFormatted = endDate ? new Date(endDate).toISOString() : '';
+  
+      const query = new URLSearchParams({
+        ...(startDateFormatted && { startDate: startDateFormatted }),
+        ...(endDateFormatted && { endDate: endDateFormatted }),
+      }).toString();
+  
+      const urlParams = new URLSearchParams(window.location.search);
+      const accessToken = urlParams.get('accessToken');
+  
       const response = await fetch(`https://assing-carrotio.onrender.com/api/calendar/events?${query}`, {
-        credentials: 'include',
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`, // Adding the Bearer token
+        },
       });
-
+  
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Unauthorized. Please log in again.');
+        }
         throw new Error('Failed to fetch events');
       }
+  
       const data = await response.json();
       setEvents(data);
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (error:any) {
+      console.error('Error:', error.message || error);
+      alert(error.message || 'An error occurred while fetching events');
     } finally {
       setLoading(false);
     }

@@ -80,38 +80,54 @@ app.get('/auth/google', (req, res) => {
 
 // Handle Google OAuth2 Callback
 app.get('/auth/google/callback', async (req, res) => {
-  const { code } = req.query;
-
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-    const { data } = await oauth2.userinfo.get();
-
-    let user = await User.findOne({ googleId: data.id });
-    if (!user) {
-      user = new User({
-        googleId: data.id,
-        name: data.name,
-        email: data.email,
-        accessToken: tokens.access_token,
-        refreshToken: tokens.refresh_token,
-      });
-    } else {
-      user.accessToken = tokens.access_token;
-      user.refreshToken = tokens.refresh_token;
-      user.updatedAt = new Date();
+    const { code } = req.query;
+  
+    if (!code) {
+      return res.status(400).json({ error: 'Missing authorization code' });
     }
-    await user.save();
-    const successRedirect = `${process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/dashboard'}?accessToken=${tokens.access_token}`;
-    res.redirect(successRedirect);
-
-  } catch (error) {
-    console.error('Error during authentication:', error);
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-});
+  
+    try {
+      // Exchange authorization code for tokens
+      const { tokens } = await oauth2Client.getToken(code);
+      oauth2Client.setCredentials(tokens);
+  
+      // Fetch user info from Google
+      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+      const { data } = await oauth2.userinfo.get();
+  
+      // Find or create user in database
+      let user = await User.findOne({ googleId: data.id });
+      if (!user) {
+        user = new User({
+          googleId: data.id,
+          name: data.name,
+          email: data.email,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+        });
+      } else {
+        user.accessToken = tokens.access_token;
+        user.refreshToken = tokens.refresh_token;
+        user.updatedAt = new Date();
+      }
+      await user.save();
+  
+      // Set an HTTP-only cookie for the access token
+      res.cookie('accessToken', tokens.access_token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: tokens.expiry_date ? tokens.expiry_date - Date.now() : 3600000, // 1 hour default
+      });
+  
+      // Redirect to the frontend dashboard
+      const redirectUrl = `${process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/dashboard'}?accessToken=${tokens.access_token}`;
+      res.redirect(redirectUrl);
+    } catch (error) {
+      console.error('Error during authentication:', error);
+      res.status(500).json({ error: 'Authentication failed' });
+    }
+  });
+  
 
 // Calendar Service
 const getCalendarEvents = async (accessToken, startDate, endDate) => {
