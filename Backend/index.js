@@ -104,7 +104,7 @@ app.get('/auth/google/callback', async (req, res) => {
       user.updatedAt = new Date();
     }
     await user.save();
-    const successRedirect = `${process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/'}?accessToken=${tokens.access_token}`;
+    const successRedirect = `${process.env.CLIENT_URL || 'https://assing-carrotio.vercel.app/dashboard'}?accessToken=${tokens.access_token}`;
     res.redirect(successRedirect);
 
   } catch (error) {
